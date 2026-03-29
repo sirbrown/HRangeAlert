@@ -2,6 +2,7 @@ package com.hrrangealert
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Application
 import android.bluetooth.*
 import android.bluetooth.le.*
 import android.content.Context
@@ -12,13 +13,15 @@ import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 import androidx.core.app.ActivityCompat
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.*
+import com.hrrangealert.data.Measurement
 
 // Standard BLE UUIDs
 val HEART_RATE_SERVICE_UUID: UUID = UUID.fromString("0000180D-0000-1000-8000-00805f9b34fb")
@@ -33,23 +36,49 @@ data class DiscoveredBleDevice(
     val device: BluetoothDevice
 )
 
-class BleViewModel : ViewModel() {
+interface IBleViewModel {
+    val heartRate: StateFlow<Int?>
+    val connectionStatus: StateFlow<String>
+    val isMeasuring: StateFlow<Boolean>
+    val hrDataPoints: StateFlow<List<Int>>
+    val averageHeartRate: StateFlow<Int?>
+    val maxHeartRate: StateFlow<Int?>
+    val hrTargetRangeLower: StateFlow<Int>
+    val hrTargetRangeUpper: StateFlow<Int>
+    val showDeviceSelectionDialog: MutableStateFlow<Boolean>
+    val discoveredDevices: StateFlow<List<DiscoveredBleDevice>>
+
+
+    fun toggleMeasurement(context: Context)
+    fun disconnect(context: Context)
+    fun init(context: Context)
+    fun hasPermissions(context: Context): Boolean
+    fun startScan(context: Context)
+    fun stopScan(context: Context)
+    fun connectToDevice(context: Context, device: BluetoothDevice)
+    fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic)
+    fun updateConnectionStatus(newStatus: String)
+    fun onCleared()
+    fun loadHistoricData(measurement: Measurement)
+}
+
+class BleViewModel(application: Application) : AndroidViewModel(application), IBleViewModel {
 
     private val _TAG = "BleViewModel"
 
     // Private MutableStateFlow that can be updated
     private val _connectionStatus = MutableStateFlow("Disconnected")
     // Publicly exposed StateFlow (read-only)
-    val connectionStatus: StateFlow<String> = _connectionStatus.asStateFlow()
+    override val connectionStatus: StateFlow<String> = _connectionStatus.asStateFlow()
 
 
     private val _heartRate = MutableStateFlow<Int?>(null)
-    val heartRate: StateFlow<Int?> = _heartRate
+    override val heartRate: StateFlow<Int?> = _heartRate
 
     private val _discoveredDevices = MutableStateFlow<List<DiscoveredBleDevice>>(emptyList())
-    val discoveredDevices: StateFlow<List<DiscoveredBleDevice>> = _discoveredDevices
+    override val discoveredDevices: StateFlow<List<DiscoveredBleDevice>> = _discoveredDevices
 
-    val showDeviceSelectionDialog = MutableStateFlow(false)
+    override val showDeviceSelectionDialog = MutableStateFlow(false)
 
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var bleScanner: BluetoothLeScanner? = null
@@ -62,6 +91,27 @@ class BleViewModel : ViewModel() {
         .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
         .build()
 
+    private val _isMeasuring = MutableStateFlow(false)
+    override val isMeasuring: StateFlow<Boolean> = _isMeasuring.asStateFlow()
+
+    // For storing HR data points during a measurement session for the graph
+    private val _hrDataPoints = MutableStateFlow<List<Int>>(emptyList())
+    override val hrDataPoints: StateFlow<List<Int>> = _hrDataPoints.asStateFlow()
+
+    // Example stats - you might want to make these more sophisticated
+    private val _averageHeartRate = MutableStateFlow<Int?>(null)
+    override val averageHeartRate: StateFlow<Int?> = _averageHeartRate.asStateFlow()
+
+    private val _maxHeartRate = MutableStateFlow<Int?>(null)
+    override val maxHeartRate: StateFlow<Int?> = _maxHeartRate.asStateFlow()
+
+    // Example range (could be user-configurable later)
+    override val hrTargetRangeLower = MutableStateFlow(60) // Example
+    override val hrTargetRangeUpper = MutableStateFlow(100) // Example
+
+    private var measurementJob: Job? = null
+    private var currentMeasurementData = mutableListOf<Int>()
+
     // Filter for devices advertising the Heart Rate Service
     private val scanFilters: List<ScanFilter> = listOf(
         ScanFilter.Builder()
@@ -70,7 +120,7 @@ class BleViewModel : ViewModel() {
     )
 
 
-    fun init(context: Context) {
+    override fun init(context: Context) {
         val bluetoothManager =
             context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
@@ -82,7 +132,7 @@ class BleViewModel : ViewModel() {
         bleScanner = bluetoothAdapter?.bluetoothLeScanner
     }
 
-    fun hasPermissions(context: Context): Boolean {
+    override fun hasPermissions(context: Context): Boolean {
         val requiredPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(
                 Manifest.permission.BLUETOOTH_SCAN,
@@ -102,11 +152,12 @@ class BleViewModel : ViewModel() {
     }
 
     // Function within your ViewModel to update the status
-    fun updateConnectionStatus(newStatus: String) {
+    override fun updateConnectionStatus(newStatus: String) {
         _connectionStatus.value = newStatus
     }
 
-    @SuppressLint("MissingPermission") // Permissions checked by hasPermissions
+    @SuppressLint("MissingPermission")
+    override // Permissions checked by hasPermissions
     fun startScan(context: Context) {
         if (!hasPermissions(context)) {
             _connectionStatus.value = "Permissions missing for BLE scan."
@@ -138,8 +189,8 @@ class BleViewModel : ViewModel() {
         Log.d(_TAG, "BLE Scan Started")
     }
 
-    @SuppressLint("MissingPermission") // Permissions checked by hasPermissions
-    fun stopScan(context: Context) {
+    @SuppressLint("MissingPermission")
+    override fun stopScan(context: Context) {
         if (!hasPermissions(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { // SCAN permission needed for stopScan on API 31+
             Log.w(_TAG, "Missing BLUETOOTH_SCAN permission to stop scan on API 31+")
             // Potentially can't stop scan without permission, which is an issue.
@@ -162,11 +213,12 @@ class BleViewModel : ViewModel() {
             val existingDevice = _discoveredDevices.value.find { it.address == deviceAddress }
             if (existingDevice == null) {
                 val discoveredDevice = DiscoveredBleDevice(deviceName, deviceAddress, device)
-                _discoveredDevices.value = _discoveredDevices.value + discoveredDevice
+                _discoveredDevices.value += discoveredDevice
                 Log.d(_TAG, "Found BLE Device: Name: $deviceName, Address: $deviceAddress")
             }
         }
 
+        @SuppressLint("MissingPermission")// Permissions checked by hasPermissions
         override fun onBatchScanResults(results: List<ScanResult>) {
             super.onBatchScanResults(results)
             results.forEach { result ->
@@ -175,11 +227,11 @@ class BleViewModel : ViewModel() {
                 val deviceAddress = device.address
                 val existingDevice = _discoveredDevices.value.find { it.address == deviceAddress }
                 if (existingDevice == null) {
-                    _discoveredDevices.value = _discoveredDevices.value + DiscoveredBleDevice(
-                        deviceName,
-                        deviceAddress,
-                        device
-                    )
+                    _discoveredDevices.value += DiscoveredBleDevice(
+                                            deviceName,
+                                            deviceAddress,
+                                            device
+                                        )
                 }
             }
             Log.d(_TAG, "Batch Scan Results: ${_discoveredDevices.value.size} devices")
@@ -193,7 +245,7 @@ class BleViewModel : ViewModel() {
     }
 
     @SuppressLint("MissingPermission") // Permissions checked by hasPermissions
-    fun connectToDevice(context: Context, device: BluetoothDevice) {
+    override fun connectToDevice(context: Context, device: BluetoothDevice) {
         if (!hasPermissions(context)) {
             _connectionStatus.value = "Permissions missing to connect."
             return
@@ -229,7 +281,7 @@ class BleViewModel : ViewModel() {
                         Log.e(_TAG, "Failed to initiate service discovery.")
                         _connectionStatus.value = "Failed to start service discovery"
                         // Optionally disconnect or handle error
-                        this@BleViewModel.disconnect(ContextUtils.getApplicationContext()) // Pass context if your disconnect needs it for some reason
+                        this@BleViewModel.disconnect(getApplication<Application>().applicationContext) // Pass context if your disconnect needs it for some reason
                     } else {
                         Log.d(_TAG, "Initiated service discovery...")
                     }
@@ -297,18 +349,18 @@ class BleViewModel : ViewModel() {
             }
         }
 
-        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray) {
             if (HEART_RATE_MEASUREMENT_CHARACTERISTIC_UUID == characteristic.uuid) {
-                val heartRateValue = parseHeartRate(characteristic.value)
+                val heartRateValue = parseHeartRate(value)
                 _heartRate.value = heartRateValue
                 Log.d(_TAG, "Heart Rate Updated: $heartRateValue")
             }
         }
 
-        override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
+        override fun onCharacteristicRead(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, value: ByteArray ,status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 if (HEART_RATE_MEASUREMENT_CHARACTERISTIC_UUID == characteristic.uuid) {
-                    val heartRateValue = parseHeartRate(characteristic.value)
+                    val heartRateValue = parseHeartRate(value)
                     _heartRate.value = heartRateValue
                      Log.d(_TAG, "Heart Rate Read: $heartRateValue")
                 }
@@ -362,35 +414,177 @@ class BleViewModel : ViewModel() {
         }
     }
 
-    @SuppressLint("MissingPermission") // Permissions checked by hasPermissions
-    fun disconnect(context: Context) {
-        if (!hasPermissions(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Log.w(_TAG, "Missing BLUETOOTH_CONNECT permission to disconnect on API 31+")
-            // May not be able to disconnect programmatically.
+    // In onCharacteristicChanged, update data points if measuring
+    override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+        if (HEART_RATE_MEASUREMENT_CHARACTERISTIC_UUID == characteristic.uuid) {
+            val heartRateValue = parseHeartRate(characteristic.value)
+            _heartRate.value = heartRateValue
+            Log.d(_TAG, "Heart Rate Updated: $heartRateValue")
+
+            if (_isMeasuring.value && heartRateValue != null) {
+                currentMeasurementData.add(heartRateValue)
+                _hrDataPoints.value = currentMeasurementData.toList() // Update for graph
+
+                // Simple live calculation for max (average can be done at the end or periodically)
+                if (heartRateValue > (_maxHeartRate.value ?: Int.MIN_VALUE)) {
+                    _maxHeartRate.value = heartRateValue
+                }
+            }
         }
-        bluetoothGatt?.disconnect()
-        // gatt?.close() will be called in onConnectionStateChange when disconnected
-        _connectionStatus.value = "Disconnecting..."
     }
 
+
+    override fun toggleMeasurement(context: Context) {
+        if (_isMeasuring.value) {
+            stopMeasurementSession()        } else {
+            // --- THIS IS THE CRITICAL FIX ---
+            // Before starting a new measurement, reset all data states to clear
+            // any previously loaded historical data or a past session's data.
+            resetMeasurementData()
+
+            // Now, start the new measurement session.
+            _isMeasuring.value = true
+            currentMeasurementData.clear()
+            _connectionStatus.value = "Measurement started..." // Provide feedback
+
+            // This job will now correctly collect and update fresh data.
+            measurementJob = viewModelScope.launch {
+                heartRate.collect { hr ->
+                    if (hr != null && _isMeasuring.value) {
+                        currentMeasurementData.add(hr)
+                        _hrDataPoints.value = currentMeasurementData.toList() // Update graph
+                        if (currentMeasurementData.isNotEmpty()) {
+                            _averageHeartRate.value = currentMeasurementData.average().toInt()
+                            _maxHeartRate.value = currentMeasurementData.maxOrNull()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // A new helper function to centralize the reset logic.
+    private fun resetMeasurementData() {
+        _hrDataPoints.value = emptyList()
+        _averageHeartRate.value = null
+        _maxHeartRate.value = null
+        _heartRate.value = null // Clear the current HR reading
+        currentMeasurementData.clear()
+    }
+
+    @SuppressLint("MissingPermission") // Ensure connect permissions are checked before calling this
+    private fun startMeasurementSession(context: Context) {
+        if (bluetoothGatt == null || _connectionStatus.value != "Receiving HR updates...") {
+            // Only start if connected and receiving updates.
+            // You might want to automatically try to connect if not.
+            updateConnectionStatus("Cannot start: Not connected to HRM or not receiving updates.")
+            Log.w(_TAG, "Attempted to start measurement without active HR updates.")
+            return
+        }
+
+        _isMeasuring.value = true
+        currentMeasurementData.clear()
+        _hrDataPoints.value = emptyList()
+        _averageHeartRate.value = null
+        _maxHeartRate.value = null
+        _connectionStatus.value = "Measurement Started"
+        Log.d(_TAG, "Measurement Started")
+
+        // If you need to perform actions periodically during measurement (e.g., save chunks to DB)
+        // measurementJob = viewModelScope.launch {
+        //     while (_isMeasuring.value) {
+        //         delay(5000) // Example: Do something every 5 seconds
+        //         // Add periodic saving or analysis here if needed
+        //     }
+        // }
+    }
+
+    private fun stopMeasurementSession() {
+        _isMeasuring.value = false
+        measurementJob?.cancel() // Stop the collection coroutine
+        measurementJob = null
+        Log.d(_TAG, "Measurement stopped. Data points: ${currentMeasurementData.size}")
+
+        if (currentMeasurementData.isNotEmpty()) {
+            _connectionStatus.value = "Measurement stopped"
+
+            // Save the completed measurement
+            val measurementToSave = Measurement(
+                timestamp = System.currentTimeMillis(),
+                heartRateDataPoints = currentMeasurementData.toList(),
+                averageHeartRate = currentMeasurementData.average().toInt(),
+                maxHeartRate = currentMeasurementData.maxOrNull() ?: 0,
+                minHeartRate = currentMeasurementData.minOrNull() ?: 0,
+                durationMillis = 0 // You'll need to calculate this
+                //TODO: Add duration
+            )
+
+            // Launch a coroutine to save to the database
+            viewModelScope.launch {
+                // This assumes you have a HistoryRepository injected or available
+                // For now, we just log it.
+                Log.d(_TAG, "Would save measurement: $measurementToSave")
+            }
+        } else {
+            // If we stop without data, clear everything.
+            resetMeasurementData()
+            _connectionStatus.value = bluetoothGatt?.let { "Connected" } ?: "Disconnected"
+        }
+    }
+
+    // You'll need to call this from MainActivity or your UI when appropriate
+    @SuppressLint("MissingPermission")
+    override fun disconnect(context: Context) {
+        if (_isMeasuring.value) {
+            stopMeasurementSession() // Stop measurement before disconnecting
+        }
+        if (bluetoothGatt != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+            ) {
+                Log.e(_TAG, "BLUETOOTH_CONNECT permission missing for disconnect")
+                _connectionStatus.value = "Connect permission missing to disconnect."
+                return
+            }
+            bluetoothGatt?.disconnect() // This will trigger onConnectionStateChange with STATE_DISCONNECTED
+            // Gatt will be closed in onConnectionStateChange
+        } else {
+            _connectionStatus.value = "Not connected."
+        }
+    }
+
+    @SuppressLint("MissingPermission")// Permissions checked by hasPermissions
     override fun onCleared() {
         super.onCleared()
-        stopScan(ContextUtils.getApplicationContext()) // Requires application context or pass activity context
+        stopScan(getApplication<Application>().applicationContext) // Requires application context or pass activity context
         bluetoothGatt?.close() // Ensure GATT is closed
         bluetoothGatt = null
         Log.d(_TAG, "ViewModel cleared, BLE resources released.")
     }
 
-    // Helper to get application context if needed, otherwise pass it around.
-    // Be careful with static context references.
-    object ContextUtils {
-        @SuppressLint("StaticFieldLeak")
-        private var appContext: Context? = null
-        fun init(context: Context) {
-            appContext = context.applicationContext
+    override fun loadHistoricData(measurement: Measurement) {
+        // Stop any ongoing live measurement session.
+        if (_isMeasuring.value) {
+            stopMeasurementSession()
         }
-        fun getApplicationContext(): Context {
-            return appContext ?: throw IllegalStateException("ContextUtils not initialized. Call init() first.")
-        }
+
+        // Set isMeasuring to false as we are viewing historical data, not recording live.
+        _isMeasuring.value = false
+
+        // Update the state flows with the data from the historical measurement.
+        // The UI (NewMainScreen) is already observing these flows and will update automatically.
+        _hrDataPoints.value = measurement.heartRateDataPoints
+        _averageHeartRate.value = measurement.averageHeartRate
+        _maxHeartRate.value = measurement.maxHeartRate
+
+        // Set heartRate to null or average, as there's no single "live" HR value.
+        // Setting it to null or the average prevents the display from showing a stale live value.
+        _heartRate.value = null
+
+        // Update the connection status to reflect that historical data is being shown.
+        _connectionStatus.value = "Displaying saved measurement"
+
+        Log.d(_TAG, "Loaded historic data for measurement from timestamp: ${measurement.timestamp}")
     }
+
 }

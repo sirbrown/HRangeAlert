@@ -1,5 +1,10 @@
+// MainActivity.kt
 package com.hrrangealert
 
+
+import com.hrrangealert.history.HistoryViewModel
+import com.hrrangealert.ui.main.NewMainScreen
+import com.hrrangealert.ui.theme.HRRangeAlertTheme
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -9,24 +14,52 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.History // Example for History
+import androidx.compose.material.icons.filled.Home // Specifically for the Home icon
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.core.app.ActivityCompat
-import com.hrrangealert.ui.theme.HRRangeAlertTheme
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.launch
+
+// Data class for navigation drawer items
+data class NavItem(
+    val label: String,
+    val icon: ImageVector,
+    val route: String
+)
 
 class MainActivity : ComponentActivity() {
     private val bleViewModel: BleViewModel by viewModels()
+    // You might want a ViewModel for measurement history later
+    private val historyViewModel: HistoryViewModel by viewModels()
 
     private val requestPermissionsLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
@@ -44,24 +77,84 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
+        @OptIn(ExperimentalMaterial3Api::class)
+        override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        BleViewModel.ContextUtils.init(applicationContext) // Initialize context util for ViewModel
-
         enableEdgeToEdge()
+
         setContent {
             HRRangeAlertTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    HeartRateBleScreen(
-                        modifier = Modifier.padding(innerPadding),
-                        viewModel = bleViewModel,
-                        onRequestPermissions = { requestBlePermissions() }
-                    )
+                val navController = rememberNavController()
+                val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+                val scope = rememberCoroutineScope()
+
+                val navItems = listOf(
+                    NavItem("Main", Icons.Filled.Home, AppDestinations.MAIN_SCREEN), // Add Home icon if needed
+                    NavItem("Devices", Icons.AutoMirrored.Filled.BluetoothSearching, AppDestinations.DEVICES_SCREEN),
+                    NavItem("History", Icons.Filled.History, AppDestinations.HISTORY_SCREEN)
+                )
+
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        ModalDrawerSheet {
+                            Spacer(Modifier.height(12.dp))
+                            navItems.forEach { item ->
+                                val currentBackStackEntry by navController.currentBackStackEntryAsState()
+                                val currentRoute = currentBackStackEntry?.destination?.route
+                                NavigationDrawerItem(
+                                    icon = { Icon(item.icon, contentDescription = item.label) },
+                                    label = { Text(item.label) },
+                                    selected = currentRoute == item.route,
+                                    onClick = {
+                                        scope.launch {
+                                            drawerState.close()
+                                        }
+                                        if (currentRoute != item.route) {
+                                            navController.navigate(item.route) {
+                                                // Pop up to the start destination of the graph to
+                                                // avoid building up a large stack of destinations
+                                                // on the back stack as users select items
+                                                popUpTo(navController.graph.startDestinationId)
+                                                launchSingleTop = true
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                                )
+                            }
+                        }
+                    }
+                ) {
+                    Scaffold(
+                        modifier = Modifier.fillMaxSize(),
+                        topBar = {
+                            TopAppBar(
+                                title = { Text("HR Range Alert") }, // Or dynamic title
+                                navigationIcon = {
+                                    IconButton(onClick = {
+                                        scope.launch {
+                                            if (drawerState.isClosed) drawerState.open() else drawerState.close()
+                                        }
+                                    }) {
+                                        Icon(Icons.Filled.Menu, contentDescription = "Menu")
+                                    }
+                                }
+                            )
+                        }
+                    ) { innerPadding ->
+                        AppNavigation(
+                            navController = navController,
+                            bleViewModel = bleViewModel,
+                            historyViewModel = historyViewModel,
+                            modifier = Modifier.padding(innerPadding),
+                            onRequestPermissions = { requestBlePermissions() }
+                        )
+                    }
                 }
             }
         }
-        // Request permissions when the activity is created
-        requestBlePermissions() // Or move this to a button click
+        requestBlePermissions()
     }
 
     private fun requestBlePermissions() {
@@ -69,13 +162,10 @@ class MainActivity : ComponentActivity() {
             arrayOf(
                 Manifest.permission.BLUETOOTH_SCAN,
                 Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.ACCESS_FINE_LOCATION // Optional for S+, but good for consistency
+                Manifest.permission.ACCESS_FINE_LOCATION
             )
         } else {
-            arrayOf(
-                Manifest.permission.BLUETOOTH,
-                Manifest.permission.BLUETOOTH_ADMIN,
-                Manifest.permission.ACCESS_FINE_LOCATION // Required for scanning pre-S
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION // Required for scanning pre-S
             )
         }
 
@@ -94,69 +184,46 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun HeartRateBleScreen(
+fun AppNavigation(
+    navController: NavHostController,
+    bleViewModel: IBleViewModel,
+    historyViewModel: HistoryViewModel,
     modifier: Modifier = Modifier,
-    viewModel: BleViewModel,
     onRequestPermissions: () -> Unit
 ) {
-    val context = LocalContext.current
-    val connectionStatus by viewModel.connectionStatus.collectAsState()
-    val heartRate by viewModel.heartRate.collectAsState()
-    val discoveredDevices by viewModel.discoveredDevices.collectAsState()
-    val showDialog by viewModel.showDeviceSelectionDialog.collectAsState() // collectAsState for flow
-
-    // Check permissions on compose start if not already handled
-    LaunchedEffect(Unit) {
-        if (!viewModel.hasPermissions(context)) {
-            onRequestPermissions()
-        } else {
-            viewModel.init(context) // Init if permissions were already there
-        }
-    }
-
-    Column(
+    NavHost(
+        navController = navController,
+        startDestination = AppDestinations.MAIN_SCREEN,
         modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(text = "BLE Heart Rate Monitor", style = MaterialTheme.typography.headlineSmall)
-
-        Button(onClick = {
-            if (viewModel.hasPermissions(context)) {
-                viewModel.startScan(context)
-            } else {
-                onRequestPermissions()
-            }
-        }) {
-            Text("Scan for HRM Devices")
+        composable(AppDestinations.MAIN_SCREEN) {
+            // This will be the new main screen with the graph
+            NewMainScreen(
+                viewModel = bleViewModel,
+                // Pass other necessary data, like loaded measurement
+            )
         }
-
-        Button(
-            onClick = { viewModel.disconnect(context) },
-            enabled = connectionStatus.startsWith("Connected") || connectionStatus.startsWith("Receiving")
-        ) {
-            Text("Disconnect")
+        composable(AppDestinations.DEVICES_SCREEN) {
+            // This screen will contain the "Scan" and "Disconnect" buttons
+            // and the device list logic, extracted from your original HeartRateBleScreen
+            DevicesScreen(
+                viewModel = bleViewModel,
+                onRequestPermissions = onRequestPermissions
+            )
         }
-
-        Text(text = "Status: $connectionStatus")
-
-        Text(
-            text = "Heart Rate: ${heartRate ?: "--"} BPM",
-            style = MaterialTheme.typography.titleLarge
-        )
-
-        if (showDialog && discoveredDevices.isNotEmpty()) {
-            DeviceSelectionDialog(
-                devices = discoveredDevices,
-                onDeviceSelected = { bleDevice ->
-                    viewModel.connectToDevice(context, bleDevice.device)
-                },
-                onDismiss = {
-                    viewModel.showDeviceSelectionDialog.value = false // Close dialog
-                    if (!connectionStatus.startsWith("Connected") && !connectionStatus.startsWith("Connecting")) {
-                        viewModel.updateConnectionStatus("Device selection cancelled.") // Update status = "Device selection cancelled."
+        composable(AppDestinations.HISTORY_SCREEN) {
+            // This screen will list saved measurements
+            HistoryScreen(
+                viewModel = historyViewModel,
+                onLoadMeasurementClicked = { measurementId ->
+                    // Logic to load measurement and navigate back or update main screen
+                    // For now, just navigate back to main
+                    historyViewModel.loadMeasurementForDisplay(measurementId)
+                    navController.navigate(AppDestinations.MAIN_SCREEN) {
+                        popUpTo(navController.graph.startDestinationId) {
+                            inclusive = true
+                        }
+                        launchSingleTop = true
                     }
                 }
             )
@@ -164,46 +231,3 @@ fun HeartRateBleScreen(
     }
 }
 
-@Composable
-fun DeviceSelectionDialog(
-    devices: List<DiscoveredBleDevice>,
-    onDeviceSelected: (DiscoveredBleDevice) -> Unit,
-    onDismiss: () -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(modifier = Modifier.padding(16.dp)) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Select HRM Device", style = MaterialTheme.typography.titleMedium)
-                Spacer(modifier = Modifier.height(16.dp))
-                if (devices.isEmpty()) {
-                    Text("No devices found yet...")
-                } else {
-                    LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) { // Limit height
-                        items(devices) { device ->
-                            Text(
-                                text = "${device.name ?: "Unknown"} (${device.address})",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onDeviceSelected(device) }
-                                    .padding(vertical = 12.dp)
-                            )
-                            HorizontalDivider()
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
-                    Text("Cancel")
-                }
-            }
-        }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun HeartRateBleScreenPreview() {
-    HRRangeAlertTheme {
-        HeartRateBleScreen(viewModel = BleViewModel(), onRequestPermissions = {})
-    }
-}
