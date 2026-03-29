@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.*
 import com.hrrangealert.data.Measurement
+import com.hrrangealert.data.AppDatabase
+import com.hrrangealert.data.MeasurementDao
 
 // Standard BLE UUIDs
 val HEART_RATE_SERVICE_UUID: UUID = UUID.fromString("0000180D-0000-1000-8000-00805f9b34fb")
@@ -65,6 +67,7 @@ interface IBleViewModel {
 class BleViewModel(application: Application) : AndroidViewModel(application), IBleViewModel {
 
     private val _TAG = "BleViewModel"
+    private val measurementDao: MeasurementDao = AppDatabase.getDatabase(application).measurementDao()
 
     // Private MutableStateFlow that can be updated
     private val _connectionStatus = MutableStateFlow("Disconnected")
@@ -110,6 +113,7 @@ class BleViewModel(application: Application) : AndroidViewModel(application), IB
     override val hrTargetRangeUpper = MutableStateFlow(100) // Example
 
     private var measurementJob: Job? = null
+    private var measurementStartTimeMillis: Long = 0L
     private var currentMeasurementData = mutableListOf<Int>()
 
     // Filter for devices advertising the Heart Rate Service
@@ -444,6 +448,7 @@ class BleViewModel(application: Application) : AndroidViewModel(application), IB
 
             // Now, start the new measurement session.
             _isMeasuring.value = true
+            measurementStartTimeMillis = System.currentTimeMillis()
             currentMeasurementData.clear()
             _connectionStatus.value = "Measurement started..." // Provide feedback
 
@@ -470,6 +475,7 @@ class BleViewModel(application: Application) : AndroidViewModel(application), IB
         _maxHeartRate.value = null
         _heartRate.value = null // Clear the current HR reading
         currentMeasurementData.clear()
+        measurementStartTimeMillis = 0L
     }
 
     @SuppressLint("MissingPermission") // Ensure connect permissions are checked before calling this
@@ -483,6 +489,7 @@ class BleViewModel(application: Application) : AndroidViewModel(application), IB
         }
 
         _isMeasuring.value = true
+        measurementStartTimeMillis = System.currentTimeMillis()
         currentMeasurementData.clear()
         _hrDataPoints.value = emptyList()
         _averageHeartRate.value = null
@@ -501,9 +508,11 @@ class BleViewModel(application: Application) : AndroidViewModel(application), IB
 
     private fun stopMeasurementSession() {
         _isMeasuring.value = false
+        val duration = if (measurementStartTimeMillis > 0) System.currentTimeMillis() - measurementStartTimeMillis else 0L
+        
         measurementJob?.cancel() // Stop the collection coroutine
         measurementJob = null
-        Log.d(_TAG, "Measurement stopped. Data points: ${currentMeasurementData.size}")
+        Log.d(_TAG, "Measurement stopped. Data points: ${currentMeasurementData.size}, Duration: ${duration}ms")
 
         if (currentMeasurementData.isNotEmpty()) {
             _connectionStatus.value = "Measurement stopped"
@@ -515,15 +524,17 @@ class BleViewModel(application: Application) : AndroidViewModel(application), IB
                 averageHeartRate = currentMeasurementData.average().toInt(),
                 maxHeartRate = currentMeasurementData.maxOrNull() ?: 0,
                 minHeartRate = currentMeasurementData.minOrNull() ?: 0,
-                durationMillis = 0 // You'll need to calculate this
-                //TODO: Add duration
+                durationMillis = duration
             )
 
             // Launch a coroutine to save to the database
             viewModelScope.launch {
-                // This assumes you have a HistoryRepository injected or available
-                // For now, we just log it.
-                Log.d(_TAG, "Would save measurement: $measurementToSave")
+                try {
+                    measurementDao.insertMeasurement(measurementToSave)
+                    Log.d(_TAG, "Successfully saved measurement to database: $measurementToSave")
+                } catch (e: Exception) {
+                    Log.e(_TAG, "Failed to save measurement to database", e)
+                }
             }
         } else {
             // If we stop without data, clear everything.

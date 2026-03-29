@@ -1,16 +1,16 @@
-package com.hrrangealert.history // Or your ViewModel package
+package com.hrrangealert.history
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hrrangealert.data.Measurement
-// import com.hrrangealert.data.MeasurementDao // You will uncomment and use this later
+import com.hrrangealert.data.MeasurementDao
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class HistoryViewModel(
-    // private val measurementDao: MeasurementDao // Inject your DAO later
+    private val measurementDao: MeasurementDao
 ) : ViewModel() {
 
     private val _measurements = MutableStateFlow<List<Measurement>>(emptyList())
@@ -25,15 +25,9 @@ class HistoryViewModel(
 
     private fun loadAllMeasurements() {
         viewModelScope.launch {
-            // TODO: Replace with actual DAO call
-            // _measurements.value = measurementDao.getAllMeasurements().first() // Example if DAO returns Flow
-
-            // Simulate loading data for now
-            _measurements.value = listOf(
-                Measurement(1, System.currentTimeMillis() - 3600000, 75, 100, 60, List(60) { 70 + (Math.random() * 10).toInt() }, 60000),
-                Measurement(2, System.currentTimeMillis() - 7200000, 85, 120, 70, List(120) { 80 + (Math.random() * 15).toInt() },120000),
-                Measurement(3, System.currentTimeMillis() - 10800000, 65, 90, 55, List(30) { 60 + (Math.random() * 5).toInt() }, 30000)
-            )
+            measurementDao.getAllMeasurements().collect { measurementList ->
+                _measurements.value = measurementList
+            }
         }
     }
 
@@ -43,5 +37,12 @@ class HistoryViewModel(
 
     fun doneDisplayingMeasurement() {
         _selectedMeasurementId.value = null // Reset after navigation
+    }
+
+    fun deleteMeasurement(measurement: Measurement) {
+        viewModelScope.launch {
+            // If you add a delete method to DAO
+            // measurementDao.deleteMeasurement(measurement)
+        }
     }
 }

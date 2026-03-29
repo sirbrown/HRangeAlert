@@ -50,7 +50,10 @@ fun NewMainScreen(
     // --- STEP 2: Determine if we are in historical view mode ---
     val isShowingHistoricalData = loadedMeasurement != null
     // If showing historical data, there is no single "current" HR, so we show the average.
-    val displayHeartRate = if (isShowingHistoricalData) loadedMeasurement.averageHeartRate else heartRate
+    val displayHeartRate = if (isShowingHistoricalData) loadedMeasurement!!.averageHeartRate else heartRate
+    val displayAvgHr = if (isShowingHistoricalData) loadedMeasurement!!.averageHeartRate else avgHr
+    val displayMaxHr = if (isShowingHistoricalData) loadedMeasurement!!.maxHeartRate else maxHr
+    val displayDataPoints = if (isShowingHistoricalData) loadedMeasurement!!.heartRateDataPoints else hrDataPoints
 
 
     Column(
@@ -67,7 +70,7 @@ fun NewMainScreen(
             verticalArrangement = Arrangement.Center // Center content vertically in this section
         ) {
             HeartRateCircularDisplay(
-                heartRate = heartRate, // Use live HR for now
+                heartRate = displayHeartRate, 
                 minRange = hrRangeLower, // Example min for color coding
                 maxRange = hrRangeUpper,  // Example max for color coding
                 modifier = Modifier.size(220.dp) // Adjust size as needed
@@ -77,7 +80,7 @@ fun NewMainScreen(
 
             if (isShowingHistoricalData) {
                 val formattedDate = SimpleDateFormat("MMM dd, yyyy - hh:mm a", Locale.getDefault())
-                    .format(loadedMeasurement.timestamp)
+                    .format(loadedMeasurement!!.timestamp)
                 Text(
                     text = "Saved: $formattedDate",
                     fontSize = 14.sp,
@@ -105,23 +108,23 @@ fun NewMainScreen(
             Spacer(Modifier.height(24.dp))
 
             StatsRow(
-                avgHr = avgHr, // Use live/session avg for now
+                avgHr = displayAvgHr,
                 hrRangeMin = hrRangeLower,
                 hrRangeMax = hrRangeUpper,
-                maxHr = maxHr // Use live/session max for now
+                maxHr = displayMaxHr
             )
 
             Spacer(Modifier.height(24.dp))
 
             // Graph Placeholder
             HeartRateGraphPlaceholder(
-                dataPoints = hrDataPoints,
+                dataPoints = displayDataPoints,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(150.dp) // Adjust height as needed
             )
             Text(
-                text = if (isMeasuring) "Live heart rate" else if (hrDataPoints.isNotEmpty()) "Last measurement" else "Connect to see live heart rate",
+                text = if (isShowingHistoricalData) "Historical data" else if (isMeasuring) "Live heart rate" else if (hrDataPoints.isNotEmpty()) "Last measurement" else "Connect to see live heart rate",
                 color = Color.Gray,
                 fontSize = 12.sp
             )
