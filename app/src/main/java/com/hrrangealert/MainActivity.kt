@@ -3,6 +3,9 @@ package com.hrrangealert
 import com.hrrangealert.history.HistoryViewModel
 import com.hrrangealert.history.HistoryViewModelFactory
 import com.hrrangealert.data.AppDatabase
+import com.hrrangealert.settings.SettingsScreen
+import com.hrrangealert.settings.SettingsViewModel
+import com.hrrangealert.settings.SettingsViewModelFactory
 import com.hrrangealert.ui.main.NewMainScreen
 import com.hrrangealert.ui.theme.HRRangeAlertTheme
 import android.Manifest
@@ -23,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -64,6 +68,10 @@ class MainActivity : ComponentActivity() {
         HistoryViewModelFactory(AppDatabase.getDatabase(this).measurementDao())
     }
 
+    private val settingsViewModel: SettingsViewModel by viewModels {
+        SettingsViewModelFactory(AppDatabase.getDatabase(this).userSettingsDao())
+    }
+
     private val requestPermissionsLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             var allGranted = true
@@ -94,7 +102,8 @@ class MainActivity : ComponentActivity() {
                 val items = listOf(
                     NavItem("Home", Icons.Default.Home, AppDestinations.MAIN_SCREEN),
                     NavItem("Devices", Icons.AutoMirrored.Filled.BluetoothSearching, AppDestinations.DEVICES_SCREEN),
-                    NavItem("History", Icons.Default.History, AppDestinations.HISTORY_SCREEN)
+                    NavItem("History", Icons.Default.History, AppDestinations.HISTORY_SCREEN),
+                    NavItem("Settings", Icons.Default.Settings, AppDestinations.SETTINGS_SCREEN)
                 )
 
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -149,6 +158,7 @@ class MainActivity : ComponentActivity() {
                             navController = navController,
                             bleViewModel = bleViewModel,
                             historyViewModel = historyViewModel,
+                            settingsViewModel = settingsViewModel,
                             onRequestPermissions = { checkAndRequestPermissions(fromUI = true) },
                             modifier = Modifier.padding(innerPadding)
                         )
@@ -195,6 +205,7 @@ fun NavGraph(
     navController: NavHostController,
     bleViewModel: BleViewModel,
     historyViewModel: HistoryViewModel,
+    settingsViewModel: SettingsViewModel,
     onRequestPermissions: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -232,8 +243,11 @@ fun NavGraph(
                 }
             )
         }
-        //TODO: Add Settings screen to configure age, weight, gender and manage saved devices
-        //TODO: Connect to saved device on startup and start data collection. Start to save data
-        // only if button "Start measurement" is pressed
+        composable(AppDestinations.SETTINGS_SCREEN) {
+            SettingsScreen(viewModel = settingsViewModel)
+        }
     }
 }
+
+//TODO: Connect to saved device on startup and start data collection. Start to save data
+// only if button "Start measurement" is pressed
