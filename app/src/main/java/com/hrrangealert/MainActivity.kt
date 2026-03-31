@@ -58,7 +58,8 @@ data class NavItem(
 
 class MainActivity : ComponentActivity() {
     private val bleViewModel: BleViewModel by viewModels()
-    
+    private var permissionRequestTriggeredFromUI = false
+
     private val historyViewModel: HistoryViewModel by viewModels {
         HistoryViewModelFactory(AppDatabase.getDatabase(this).measurementDao())
     }
@@ -73,7 +74,10 @@ class MainActivity : ComponentActivity() {
                 bleViewModel.init(this)
                 bleViewModel.startScan(this)
             } else {
-                bleViewModel.updateConnectionStatus("Permissions denied. Cannot scan for BLE devices.")
+                if (permissionRequestTriggeredFromUI) {
+                    bleViewModel.updateConnectionStatus("Permissions denied. Cannot scan for BLE devices.")
+                }
+                permissionRequestTriggeredFromUI = false // Reset the flag
             }
         }
 
@@ -145,7 +149,7 @@ class MainActivity : ComponentActivity() {
                             navController = navController,
                             bleViewModel = bleViewModel,
                             historyViewModel = historyViewModel,
-                            onRequestPermissions = { checkAndRequestPermissions() },
+                            onRequestPermissions = { checkAndRequestPermissions(fromUI = true) },
                             modifier = Modifier.padding(innerPadding)
                         )
                     }
@@ -156,7 +160,7 @@ class MainActivity : ComponentActivity() {
         checkAndRequestPermissions()
     }
 
-    private fun checkAndRequestPermissions() {
+    private fun checkAndRequestPermissions(fromUI: Boolean = false) {
         val permissions = mutableListOf<String>()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -177,6 +181,7 @@ class MainActivity : ComponentActivity() {
         }
 
         if (permissionsToRequest.isNotEmpty()) {
+            permissionRequestTriggeredFromUI = fromUI
             requestPermissionsLauncher.launch(permissionsToRequest.toTypedArray())
         } else {
             bleViewModel.init(this)
@@ -227,5 +232,8 @@ fun NavGraph(
                 }
             )
         }
+        //TODO: Add Settings screen to configure age, weight, gender and manage saved devices
+        //TODO: Connect to saved device on startup and start data collection. Start to save data
+        // only if button "Start measurement" is pressed
     }
 }

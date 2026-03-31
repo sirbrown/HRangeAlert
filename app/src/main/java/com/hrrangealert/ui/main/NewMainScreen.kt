@@ -133,6 +133,7 @@ fun NewMainScreen(
 
         // --- STEP 4: Hide the button in historical view ---
         // You cannot start/stop a measurement that has already been recorded.
+        // TODO: Main screen is remaining in history view. Create button to exit to Main screen
         if (!isShowingHistoricalData) {
             Button(
                 onClick = { viewModel.toggleMeasurement(context) },

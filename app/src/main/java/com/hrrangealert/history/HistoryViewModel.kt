@@ -43,6 +43,7 @@ class HistoryViewModel(
         viewModelScope.launch {
             // If you add a delete method to DAO
             // measurementDao.deleteMeasurement(measurement)
+            //TODO: Add delete function to measurement history record.
         }
     }
 }

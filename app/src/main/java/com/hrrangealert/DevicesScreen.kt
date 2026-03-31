@@ -87,6 +87,8 @@ fun DeviceSelectionDialog(
                 if (devices.isEmpty()) {
                     Text("No devices found yet...")
                 } else {
+                    //TODO: If device selected save it to database with index for more saved devices
+                    // Use device first with lowest index. If can not connect, than try with next index
                     LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) { // Limit height
                         items(devices) { device ->
                             Text(
