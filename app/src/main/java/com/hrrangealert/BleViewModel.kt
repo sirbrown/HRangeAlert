@@ -24,6 +24,8 @@ import java.util.*
 import com.hrrangealert.data.Measurement
 import com.hrrangealert.data.AppDatabase
 import com.hrrangealert.data.MeasurementDao
+import com.hrrangealert.data.SavedBleDevice
+import com.hrrangealert.data.SavedBleDeviceDao
 
 // Standard BLE UUIDs
 val HEART_RATE_SERVICE_UUID: UUID = UUID.fromString("0000180D-0000-1000-8000-00805f9b34fb")
@@ -49,6 +51,7 @@ interface IBleViewModel {
     val hrTargetRangeUpper: StateFlow<Int>
     val showDeviceSelectionDialog: MutableStateFlow<Boolean>
     val discoveredDevices: StateFlow<List<DiscoveredBleDevice>>
+    val savedDevices: StateFlow<List<SavedBleDevice>>
 
 
     fun toggleMeasurement(context: Context)
@@ -62,12 +65,15 @@ interface IBleViewModel {
     fun updateConnectionStatus(newStatus: String)
     fun onCleared()
     fun loadHistoricData(measurement: Measurement)
+    fun saveDevice(device: DiscoveredBleDevice)
 }
 
 class BleViewModel(application: Application) : AndroidViewModel(application), IBleViewModel {
 
     private val _TAG = "BleViewModel"
     private val measurementDao: MeasurementDao = AppDatabase.getDatabase(application).measurementDao()
+    private val savedBleDeviceDao: SavedBleDeviceDao = AppDatabase.getDatabase(application).savedBleDeviceDao()
+
 
     // Private MutableStateFlow that can be updated
     private val _connectionStatus = MutableStateFlow("Disconnected")
@@ -82,6 +88,9 @@ class BleViewModel(application: Application) : AndroidViewModel(application), IB
     override val discoveredDevices: StateFlow<List<DiscoveredBleDevice>> = _discoveredDevices
 
     override val showDeviceSelectionDialog = MutableStateFlow(false)
+
+    private val _savedDevices = MutableStateFlow<List<SavedBleDevice>>(emptyList())
+    override val savedDevices: StateFlow<List<SavedBleDevice>> = _savedDevices.asStateFlow()
 
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var bleScanner: BluetoothLeScanner? = null
@@ -134,7 +143,41 @@ class BleViewModel(application: Application) : AndroidViewModel(application), IB
             return
         }
         bleScanner = bluetoothAdapter?.bluetoothLeScanner
+        loadSavedDevices()
+        autoConnect(context)
     }
+
+    private fun loadSavedDevices() {
+        viewModelScope.launch {
+            savedBleDeviceDao.getSavedDevices().collect { devices ->
+                _savedDevices.value = devices
+            }
+        }
+    }
+
+    private fun autoConnect(context: Context) {
+        viewModelScope.launch {
+            savedBleDeviceDao.getSavedDevices().collect { devices ->
+                if (devices.isNotEmpty()) {
+                    for (device in devices) {
+                        try {
+                            val bluetoothDevice = bluetoothAdapter?.getRemoteDevice(device.address)
+                            if (bluetoothDevice != null) {
+                                connectToDevice(context, bluetoothDevice)
+                                // If connection is successful, break the loop
+                                // This is a simplification. A more robust solution would involve
+                                // waiting for the connection state to change to connected.
+                                break
+                            }
+                        } catch (e: IllegalArgumentException) {
+                            Log.e(_TAG, "Invalid Bluetooth address: ${device.address}", e)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 
     override fun hasPermissions(context: Context): Boolean {
         val requiredPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -269,6 +312,17 @@ class BleViewModel(application: Application) : AndroidViewModel(application), IB
             device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
     }
 
+    override fun saveDevice(device: DiscoveredBleDevice) {
+        viewModelScope.launch {
+            val savedBleDevice = SavedBleDevice(
+                address = device.address,
+                name = device.name
+            )
+            savedBleDeviceDao.insertDevice(savedBleDevice)
+        }
+    }
+
+
     private val gattCallback = object : BluetoothGattCallback() {
         @SuppressLint("MissingPermission") // Permissions were checked before connectToDevice initiated this callback sequence
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
@@ -331,13 +385,25 @@ class BleViewModel(application: Application) : AndroidViewModel(application), IB
                 val descriptor =
                     hrCharacteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG_UUID)
                 if (descriptor != null) {
-                    descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                    val descriptorWriteSuccess = gatt.writeDescriptor(descriptor)
-                    if (!descriptorWriteSuccess) {
-                        Log.e(_TAG, "Failed to write CCCD descriptor to enable notifications")
-                        _connectionStatus.value = "Failed to enable HR notifications (write)"
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val result = gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                        if (result != BluetoothGatt.GATT_SUCCESS) {
+                            Log.e(_TAG, "Failed to write CCCD descriptor to enable notifications, result: $result")
+                            _connectionStatus.value = "Failed to enable HR notifications (write)"
+                        } else {
+                            Log.i(_TAG, "CCCD descriptor write initiated for HR notifications")
+                        }
                     } else {
-                        Log.i(_TAG, "CCCD descriptor write initiated for HR notifications")
+                        @Suppress("DEPRECATION")
+                        descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        @Suppress("DEPRECATION")
+                        val descriptorWriteSuccess = gatt.writeDescriptor(descriptor)
+                        if (!descriptorWriteSuccess) {
+                            Log.e(_TAG, "Failed to write CCCD descriptor to enable notifications")
+                            _connectionStatus.value = "Failed to enable HR notifications (write)"
+                        } else {
+                            Log.i(_TAG, "CCCD descriptor write initiated for HR notifications")
+                        }
                     }
                 } else {
                     Log.e(
@@ -372,6 +438,7 @@ class BleViewModel(application: Application) : AndroidViewModel(application), IB
         }
 
         // Callback for descriptor write (confirming notification enabled)
+        @Suppress("DEPRECATION")
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             super.onDescriptorWrite(gatt, descriptor, status)
             if (status == BluetoothGatt.GATT_SUCCESS) {
@@ -379,6 +446,7 @@ class BleViewModel(application: Application) : AndroidViewModel(application), IB
                     if (Arrays.equals(descriptor.value, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)) {
                         Log.i(_TAG, "Successfully enabled notifications for ${descriptor.characteristic.uuid}")
                         _connectionStatus.value = "Receiving HR updates..."
+
                     } else if (Arrays.equals(descriptor.value, BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE)) {
                         Log.i(_TAG, "Successfully disabled notifications for ${descriptor.characteristic.uuid}")
                     }
@@ -421,6 +489,7 @@ class BleViewModel(application: Application) : AndroidViewModel(application), IB
     // In onCharacteristicChanged, update data points if measuring
     override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
         if (HEART_RATE_MEASUREMENT_CHARACTERISTIC_UUID == characteristic.uuid) {
+            @Suppress("DEPRECATION")
             val heartRateValue = parseHeartRate(characteristic.value)
             _heartRate.value = heartRateValue
             Log.d(_TAG, "Heart Rate Updated: $heartRateValue")

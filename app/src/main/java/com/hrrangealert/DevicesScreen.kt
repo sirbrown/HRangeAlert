@@ -58,6 +58,7 @@ fun DevicesScreen(
             DeviceSelectionDialog( // Your existing dialog
                 devices = discoveredDevices,
                 onDeviceSelected = { bleDevice ->
+                    viewModel.saveDevice(bleDevice)
                     viewModel.connectToDevice(context, bleDevice.device)
                 },
                 onDismiss = {
