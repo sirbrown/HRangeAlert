@@ -24,6 +24,9 @@ interface SavedBleDeviceDao {
     @Query("SELECT * FROM saved_ble_devices ORDER BY timestamp DESC")
     fun getSavedDevices(): Flow<List<SavedBleDevice>>
 
+    @Query("SELECT * FROM saved_ble_devices WHERE address = :address LIMIT 1")
+    suspend fun getDevice(address: String): SavedBleDevice?
+
     @Query("DELETE FROM saved_ble_devices WHERE address = :address")
     suspend fun deleteDevice(address: String)
 }

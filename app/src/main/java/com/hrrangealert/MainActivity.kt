@@ -1,13 +1,5 @@
 package com.hrrangealert
 
-import com.hrrangealert.history.HistoryViewModel
-import com.hrrangealert.history.HistoryViewModelFactory
-import com.hrrangealert.data.AppDatabase
-import com.hrrangealert.settings.SettingsScreen
-import com.hrrangealert.settings.SettingsViewModel
-import com.hrrangealert.settings.SettingsViewModelFactory
-import com.hrrangealert.ui.main.NewMainScreen
-import com.hrrangealert.ui.theme.HRRangeAlertTheme
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -23,9 +15,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,6 +44,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.hrrangealert.data.AppDatabase
+import com.hrrangealert.history.HistoryViewModel
+import com.hrrangealert.history.HistoryViewModelFactory
+import com.hrrangealert.settings.SettingsScreen
+import com.hrrangealert.settings.SettingsViewModel
+import com.hrrangealert.settings.SettingsViewModelFactory
+import com.hrrangealert.ui.main.NewMainScreen
+import com.hrrangealert.ui.theme.HRRangeAlertTheme
 import kotlinx.coroutines.launch
 
 data class NavItem(
@@ -61,7 +61,7 @@ data class NavItem(
 )
 
 class MainActivity : ComponentActivity() {
-    private val bleViewModel: BleViewModel by viewModels()
+    private lateinit var bleViewModel: BleViewModel
     private var permissionRequestTriggeredFromUI = false
 
     private val historyViewModel: HistoryViewModel by viewModels {
@@ -69,7 +69,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private val settingsViewModel: SettingsViewModel by viewModels {
-        SettingsViewModelFactory(AppDatabase.getDatabase(this).userSettingsDao())
+        val database = AppDatabase.getDatabase(this)
+        SettingsViewModelFactory(database.userSettingsDao(), database.savedBleDeviceDao())
     }
 
     private val requestPermissionsLauncher =
@@ -80,7 +81,6 @@ class MainActivity : ComponentActivity() {
             }
             if (allGranted) {
                 bleViewModel.init(this)
-                bleViewModel.startScan(this)
             } else {
                 if (permissionRequestTriggeredFromUI) {
                     bleViewModel.updateConnectionStatus("Permissions denied. Cannot scan for BLE devices.")
@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        bleViewModel = (application as HrrApplication).bleViewModel
         enableEdgeToEdge()
         setContent {
             HRRangeAlertTheme {
@@ -166,7 +167,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
 
+    override fun onResume() {
+        super.onResume()
+        // Check permissions every time the app comes to the foreground.
         checkAndRequestPermissions()
     }
 
@@ -195,7 +200,6 @@ class MainActivity : ComponentActivity() {
             requestPermissionsLauncher.launch(permissionsToRequest.toTypedArray())
         } else {
             bleViewModel.init(this)
-            bleViewModel.startScan(this)
         }
     }
 }
@@ -248,6 +252,3 @@ fun NavGraph(
         }
     }
 }
-
-//TODO: Connect to saved device on startup and start data collection. Start to save data
-// only if button "Start measurement" is pressed

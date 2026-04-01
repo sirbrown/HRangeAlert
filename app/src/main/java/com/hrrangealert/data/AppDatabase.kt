@@ -26,6 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "hr_range_alert_database"
                 )
                 .fallbackToDestructiveMigration(dropAllTables = false) // Not for production apps!
+                .allowMainThreadQueries() // Allow queries on the main thread
                 .build()
                 INSTANCE = instance
                 instance
