@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -70,7 +71,7 @@ class MainActivity : ComponentActivity() {
 
     private val settingsViewModel: SettingsViewModel by viewModels {
         val database = AppDatabase.getDatabase(this)
-        SettingsViewModelFactory(database.userSettingsDao(), database.savedBleDeviceDao())
+        SettingsViewModelFactory(database.userSettingsDao())
     }
 
     private val requestPermissionsLauncher =
@@ -99,6 +100,10 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                 val scope = rememberCoroutineScope()
+
+                LaunchedEffect(Unit) {
+                    checkAndRequestPermissions()
+                }
 
                 val items = listOf(
                     NavItem("Home", Icons.Default.Home, AppDestinations.MAIN_SCREEN),
@@ -167,12 +172,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // Check permissions every time the app comes to the foreground.
-        checkAndRequestPermissions()
     }
 
     private fun checkAndRequestPermissions(fromUI: Boolean = false) {

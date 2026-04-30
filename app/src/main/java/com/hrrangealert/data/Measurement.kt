@@ -1,17 +1,18 @@
-package com.hrrangealert.data // Or your data model package
+package com.hrrangealert.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverters
 
 @Entity(tableName = "measurements")
-@TypeConverters(Converters::class) // For converting List<Int> to String and back
+@TypeConverters(Converters::class)
 data class Measurement(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
-    val timestamp: Long, // When the measurement was started/saved
+    val timestamp: Long,
     val averageHeartRate: Int?,
     val maxHeartRate: Int?,
-    val minHeartRate: Int?, // Added min for completeness
-    val heartRateDataPoints: List<Int>, // All HR readings during the session
-    val durationMillis: Long // Duration of the measurement
+    val minHeartRate: Int?,
+    val heartRateDataPoints: List<Int>,
+    val durationMillis: Long,
+    val caloriesBurned: Double? = null
 )

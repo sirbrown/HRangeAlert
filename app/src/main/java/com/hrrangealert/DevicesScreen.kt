@@ -1,18 +1,25 @@
-package com.hrrangealert // Or your appropriate package
+package com.hrrangealert
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.hrrangealert.data.SavedBleDevice
 
 
 @Composable
@@ -23,9 +30,12 @@ fun DevicesScreen(
     val context = LocalContext.current
     val connectionStatus by viewModel.connectionStatus.collectAsState()
     val discoveredDevices by viewModel.discoveredDevices.collectAsState()
+    val savedDevices by viewModel.savedDevices.collectAsState()
     val showDialog by viewModel.showDeviceSelectionDialog.collectAsState()
 
-    // Re-use the relevant parts of your original HeartRateBleScreen
+    var deviceToRename by remember { mutableStateOf<SavedBleDevice?>(null) }
+    var newDeviceName by remember { mutableStateOf("") }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -54,8 +64,49 @@ fun DevicesScreen(
 
         Text(text = "Status: $connectionStatus")
 
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        Text("Saved Devices", style = MaterialTheme.typography.titleLarge)
+
+        LazyColumn(modifier = Modifier.weight(1f)) {
+            items(savedDevices) { device ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                viewModel.getBluetoothDevice(device.address)?.let { bluetoothDevice ->
+                                    viewModel.connectToDevice(context, bluetoothDevice)
+                                }
+                            }
+                    ) {
+                        Text(text = device.name ?: "Unknown", style = MaterialTheme.typography.bodyLarge)
+                        Text(text = device.address, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Row {
+                        IconButton(onClick = {
+                            deviceToRename = device
+                            newDeviceName = device.name ?: ""
+                        }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Rename")
+                        }
+                        IconButton(onClick = { viewModel.deleteDevice(device.address) }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete")
+                        }
+                    }
+                }
+                HorizontalDivider()
+            }
+        }
+
         if (showDialog && discoveredDevices.isNotEmpty()) {
-            DeviceSelectionDialog( // Your existing dialog
+            DeviceSelectionDialog(
                 devices = discoveredDevices,
                 onDeviceSelected = { bleDevice ->
                     viewModel.saveDevice(bleDevice)
@@ -69,8 +120,38 @@ fun DevicesScreen(
                 }
             )
         } else if (showDialog) {
-            Text("Scanning for devices...") // Or handle empty discoveredDevices in dialog
+            Text("Scanning for devices...")
         }
+    }
+
+    if (deviceToRename != null) {
+        AlertDialog(
+            onDismissRequest = { deviceToRename = null },
+            title = { Text("Rename Device") },
+            text = {
+                OutlinedTextField(
+                    value = newDeviceName,
+                    onValueChange = { newDeviceName = it },
+                    label = { Text("New Name") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    deviceToRename?.let {
+                        viewModel.renameDevice(it.address, newDeviceName)
+                    }
+                    deviceToRename = null
+                }) {
+                    Text("Rename")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deviceToRename = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -88,9 +169,7 @@ fun DeviceSelectionDialog(
                 if (devices.isEmpty()) {
                     Text("No devices found yet...")
                 } else {
-                    //TODO: If device selected save it to database with index for more saved devices
-                    // Use device first with lowest index. If can not connect, than try with next index
-                    LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) { // Limit height
+                    LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
                         items(devices) { device ->
                             Text(
                                 text = "${device.name ?: "Unknown"} (${device.address})",

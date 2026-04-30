@@ -6,7 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
-@Database(entities = [Measurement::class, UserSettings::class, SavedBleDevice::class], version = 3, exportSchema = false)
+@Database(entities = [Measurement::class, UserSettings::class, SavedBleDevice::class], version = 4, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun measurementDao(): MeasurementDao

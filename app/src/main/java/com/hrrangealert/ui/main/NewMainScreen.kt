@@ -1,5 +1,5 @@
 // NewMainScreen.kt
-package com.hrrangealert.ui.main // Adjust package as needed
+package com.hrrangealert.ui.main
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -20,67 +20,66 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hrrangealert.IBleViewModel
-import com.hrrangealert.data.Measurement // If you create a model for loaded data
-import java.text.SimpleDateFormat // For formatting date/time of loaded measurement
-import java.util.Locale
+import com.hrrangealert.data.Measurement
+import java.text.SimpleDateFormat
+import androidx.compose.ui.platform.LocalLocale
 
 // Define colors used in your image
-val DarkBackground = Color(0xFF1F2125) // Approx
-val TealArcColor = Color(0xFF00C9B8) // Approx
-val OrangeArcColor = Color(0xFFFF8C00) // Approx
-val TextYellow = Color(0xFFFFD700) // Approx High/Low text
+val DarkBackground = Color(0xFF1F2125)
+val TealArcColor = Color(0xFF00C9B8)
+val OrangeArcColor = Color(0xFFFF8C00)
+val TextYellow = Color(0xFFFFD700)
 
 @Composable
 fun NewMainScreen(
     viewModel: IBleViewModel,
-    loadedMeasurement: Measurement? = null, // For displaying historic data
+    loadedMeasurement: Measurement? = null,
 ) {
     val heartRate by viewModel.heartRate.collectAsState()
     val connectionStatus by viewModel.connectionStatus.collectAsState()
     val isMeasuring by viewModel.isMeasuring.collectAsState()
-    val hrDataPoints by viewModel.hrDataPoints.collectAsState() // For the graph
+    val hrDataPoints by viewModel.hrDataPoints.collectAsState()
     val avgHr by viewModel.averageHeartRate.collectAsState()
     val maxHr by viewModel.maxHeartRate.collectAsState()
-    // You'll need to define how hrRange is determined. For now, a placeholder.
+    val caloriesBurned by viewModel.caloriesBurned.collectAsState()
+    
     val hrRangeLower by viewModel.hrTargetRangeLower.collectAsState()
     val hrRangeUpper by viewModel.hrTargetRangeUpper.collectAsState()
 
     val context = LocalContext.current
 
-    // --- STEP 2: Determine if we are in historical view mode ---
     val isShowingHistoricalData = loadedMeasurement != null
-    // If showing historical data, there is no single "current" HR, so we show the average.
-    val displayHeartRate = if (isShowingHistoricalData) loadedMeasurement!!.averageHeartRate else heartRate
-    val displayAvgHr = if (isShowingHistoricalData) loadedMeasurement!!.averageHeartRate else avgHr
-    val displayMaxHr = if (isShowingHistoricalData) loadedMeasurement!!.maxHeartRate else maxHr
-    val displayDataPoints = if (isShowingHistoricalData) loadedMeasurement!!.heartRateDataPoints else hrDataPoints
+    val displayHeartRate = if (isShowingHistoricalData) loadedMeasurement.averageHeartRate else heartRate
+    val displayAvgHr = if (isShowingHistoricalData) loadedMeasurement.averageHeartRate else avgHr
+    val displayMaxHr = if (isShowingHistoricalData) loadedMeasurement.maxHeartRate else maxHr
+    val displayDataPoints = if (isShowingHistoricalData) loadedMeasurement.heartRateDataPoints else hrDataPoints
+    val displayCalories = if (isShowingHistoricalData) loadedMeasurement.caloriesBurned else caloriesBurned
 
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkBackground) // Use the dark background color
+            .background(DarkBackground)
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Top section: Circular HR display and stats
         Column(
-            modifier = Modifier.weight(1f), // Takes up available space pushing button down
+            modifier = Modifier.weight(1f),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center // Center content vertically in this section
+            verticalArrangement = Arrangement.Center
         ) {
             HeartRateCircularDisplay(
                 heartRate = displayHeartRate, 
-                minRange = hrRangeLower, // Example min for color coding
-                maxRange = hrRangeUpper,  // Example max for color coding
-                modifier = Modifier.size(220.dp) // Adjust size as needed
+                minRange = hrRangeLower,
+                maxRange = hrRangeUpper,
+                modifier = Modifier.size(220.dp)
             )
 
-            Spacer(Modifier.height(8.dp)) // Reduced spacer
+            Spacer(Modifier.height(8.dp))
 
             if (isShowingHistoricalData) {
-                val formattedDate = SimpleDateFormat("MMM dd, yyyy - hh:mm a", Locale.getDefault())
-                    .format(loadedMeasurement!!.timestamp)
+                val formattedDate = SimpleDateFormat("MMM dd, yyyy - hh:mm a", LocalLocale.current.platformLocale)
+                    .format(loadedMeasurement.timestamp)
                 Text(
                     text = "Saved: $formattedDate",
                     fontSize = 14.sp,
@@ -111,17 +110,17 @@ fun NewMainScreen(
                 avgHr = displayAvgHr,
                 hrRangeMin = hrRangeLower,
                 hrRangeMax = hrRangeUpper,
-                maxHr = displayMaxHr
+                maxHr = displayMaxHr,
+                calories = displayCalories
             )
 
             Spacer(Modifier.height(24.dp))
 
-            // Graph Placeholder
             HeartRateGraphPlaceholder(
                 dataPoints = displayDataPoints,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(150.dp) // Adjust height as needed
+                    .height(150.dp)
             )
             Text(
                 text = if (isShowingHistoricalData) "Historical data" else if (isMeasuring) "Live heart rate" else if (hrDataPoints.isNotEmpty()) "Last measurement" else "Connect to see live heart rate",
@@ -131,9 +130,6 @@ fun NewMainScreen(
 
         }
 
-        // --- STEP 4: Hide the button in historical view ---
-        // You cannot start/stop a measurement that has already been recorded.
-        // TODO: Main screen is remaining in history view. Create button to exit to Main screen
         if (!isShowingHistoricalData) {
             Button(
                 onClick = { viewModel.toggleMeasurement(context) },
@@ -152,7 +148,6 @@ fun NewMainScreen(
             }
         }
 
-        // Connection status (optional, could be in top bar or less prominent)
         Text(
             text = "Status: $connectionStatus",
             color = Color.LightGray,
@@ -168,32 +163,26 @@ fun HeartRateCircularDisplay(
     minRange: Int,
     maxRange: Int,
     modifier: Modifier = Modifier,
-    strokeWidth: Dp = 18.dp, // Thickness of the arcs
-    backgroundColor: Color = Color.DarkGray, // Color of the background circle arc
+    strokeWidth: Dp = 18.dp,
+    backgroundColor: Color = Color.DarkGray,
 ) {
     Box(contentAlignment = Alignment.Center, modifier = modifier) {
-        val sweepAngle = 270f // For the 3/4 circle look
-        val startAngle = -225f // Start from bottom-left part of circle
+        val sweepAngle = 270f
+        val startAngle = -225f
 
         val currentHrFloat = heartRate?.toFloat() ?: 0f
-        // Calculate progress within a broader typical HR range for the arc (e.g., 40-180 bpm)
-        // The color segmentation (teal/orange) is based on minRange/maxRange
         val overallMinHr = 40f
         val overallMaxHr = 180f
-        val progress = ((currentHrFloat - overallMinHr) / (overallMaxHr - overallMinHr)).coerceIn(0f, 1f)
-        val progressAngle = sweepAngle * progress
 
         Canvas(modifier = Modifier.fillMaxSize()) {
-            // Background Arc
             drawArc(
-                color = backgroundColor.copy(alpha = 0.5f), // Slightly transparent background
+                color = backgroundColor.copy(alpha = 0.5f),
                 startAngle = startAngle,
                 sweepAngle = sweepAngle,
                 useCenter = false,
                 style = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round)
             )
 
-            // Teal part (up to minRange or current HR if below minRange)
             val tealEndValue = minOf(currentHrFloat, minRange.toFloat())
             val tealProgress = ((tealEndValue - overallMinHr) / (overallMaxHr - overallMinHr)).coerceIn(0f, 1f)
             val tealSweep = sweepAngle * tealProgress
@@ -207,11 +196,9 @@ fun HeartRateCircularDisplay(
                 )
             }
 
-            // Orange part (from minRange to current HR if above minRange, up to maxRange or current HR)
             if (currentHrFloat > minRange) {
                 val orangeStartValue = minRange.toFloat()
-                val orangeEndValue = currentHrFloat // We want the orange to go up to current HR
-                // val orangeEndValue = minOf(currentHrFloat, maxRange.toFloat()) // if you want orange to cap at maxRange visually
+                val orangeEndValue = currentHrFloat
 
                 val orangeStartProgress = ((orangeStartValue - overallMinHr) / (overallMaxHr - overallMinHr)).coerceIn(0f, 1f)
                 val orangeEndProgress = ((orangeEndValue - overallMinHr) / (overallMaxHr - overallMinHr)).coerceIn(0f, 1f)
@@ -231,12 +218,11 @@ fun HeartRateCircularDisplay(
             }
         }
 
-        // Text in the center
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = heartRate?.toString() ?: "--",
-                fontSize = 70.sp, // Large text for HR
-                fontWeight = FontWeight.Light, // As in image
+                fontSize = 70.sp,
+                fontWeight = FontWeight.Light,
                 color = Color.White
             )
             Text(
@@ -255,24 +241,34 @@ fun StatsRow(
     hrRangeMin: Int,
     hrRangeMax: Int,
     maxHr: Int?,
+    calories: Double?,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceAround,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        StatItem("Avg HR", avgHr?.toString() ?: "--")
-        StatItem("HR Range", "$hrRangeMin-$hrRangeMax")
-        StatItem("Max", maxHr?.toString() ?: "--")
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            StatItem("Avg HR", avgHr?.toString() ?: "--")
+            StatItem("HR Range", "$hrRangeMin-$hrRangeMax")
+            StatItem("Max", maxHr?.toString() ?: "--")
+        }
+        
+        if (calories != null) {
+            Spacer(Modifier.height(16.dp))
+            StatItem(
+                label = "Calories Burned",
+                value = String.format(LocalLocale.current.platformLocale, "%.1f kcal", calories),
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+        }
     }
 }
 
 @Composable
-fun StatItem(label: String, value: String, icon: @Composable (() -> Unit)? = null) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        // Icon (Optional, if you want to add icons like in the image)
-        // e.g. Icon(Icons.Filled.FavoriteBorder, contentDescription = "Average Heart Rate", tint = Color.LightGray)
+fun StatItem(label: String, value: String, modifier: Modifier = Modifier, icon: @Composable (() -> Unit)? = null) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
         if (icon != null) {
             icon()
             Spacer(Modifier.height(4.dp))
@@ -286,14 +282,13 @@ fun StatItem(label: String, value: String, icon: @Composable (() -> Unit)? = nul
 fun HeartRateGraphPlaceholder(dataPoints: List<Int>, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .background(Color.Black.copy(alpha = 0.2f)) // Darker placeholder background
+            .background(Color.Black.copy(alpha = 0.2f))
             .padding(8.dp),
         contentAlignment = Alignment.Center
     ) {
         if (dataPoints.isEmpty()) {
             Text("Graph will appear here", color = Color.Gray)
         } else {
-            // Basic line graph placeholder - A real graph is more complex
             Canvas(modifier = Modifier.fillMaxSize()) {
                 if (dataPoints.size > 1) {
                     val xStep = size.width / (dataPoints.size - 1)
@@ -308,8 +303,8 @@ fun HeartRateGraphPlaceholder(dataPoints: List<Int>, modifier: Modifier = Modifi
                         val y2 = size.height - ((dataPoints[i+1] - minVal) / valueRange * size.height)
                         drawLine(
                             color = OrangeArcColor,
-                            start = Offset(x1, y1.toFloat()),
-                            end = Offset(x2, y2.toFloat()),
+                            start = Offset(x1, y1),
+                            end = Offset(x2, y2),
                             strokeWidth = 3f
                         )
                     }
@@ -322,7 +317,7 @@ fun HeartRateGraphPlaceholder(dataPoints: List<Int>, modifier: Modifier = Modifi
                 }
             }
             Row(Modifier.fillMaxWidth().align(Alignment.BottomCenter), horizontalArrangement = Arrangement.SpaceBetween){
-                Text("-10 min", color = Color.Gray, fontSize = 10.sp) // Placeholder time labels
+                Text("-10 min", color = Color.Gray, fontSize = 10.sp)
                 Text("0 min", color = Color.Gray, fontSize = 10.sp)
             }
         }
